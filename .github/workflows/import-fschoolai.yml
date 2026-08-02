@@ -2,6 +2,7 @@
 name: Import FschoolAI and add Elon avatar
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
