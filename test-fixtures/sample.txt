@@ -1,0 +1,2 @@
+SENTINEL_FSCHOOL_4F2A
+Plain-text fixture. The cell is the basic unit of life.

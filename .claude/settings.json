@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm run dev)",
+      "PowerShell($ready = $false; for \\($i=0; $i -lt 30; $i++\\) { try { $r = Invoke-WebRequest -Uri \"http://localhost:5173\" -TimeoutSec 2 -UseBasicParsing; if \\($r.StatusCode -eq 200\\) { $ready = $true; break } } catch { Start-Sleep -Milliseconds 700 } }; if \\($ready\\) { Write-Output \"dev server READY`n\"; node scripts/sim-upload.mjs } else { Write-Output \"dev server did not become ready\"; })",
+      "PowerShell($env:DEV_URL = \"http://localhost:5174\"; node scripts/sim-upload.mjs 2>&1)",
+      "PowerShell(try { Get-NetTCPConnection -LocalPort 5174 -State Listen -ErrorAction Stop | Select-Object -Expand OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force; Write-Output \"stopped dev server pid $_\" } } catch { Write-Output \"nothing listening on 5174\" })",
+      "PowerShell(npx --yes tsx scripts/auth-cleanup.ts 2>&1)"
+    ]
+  }
+}

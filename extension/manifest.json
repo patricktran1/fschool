@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "NeuroAgi",
+  "version": "1.10.0",
+  "description": "Sync your academic data to NeuroAgi — works on any university portal.",
+  "permissions": ["storage", "activeTab", "scripting", "tabs", "alarms"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/universal.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "NeuroAgi — Capture academic data"
+  }
+}

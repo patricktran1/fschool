@@ -1,0 +1,366 @@
+/**
+ * api/brain-intervention.ts — Vercel Cron Job (Pattern B: watch → evaluate → propose).
+ *
+ * Runs every 30 minutes. Reads context_window from the Brain DB (NeuroAGI),
+ * detects students who need a proactive nudge, and writes a CANDIDATE to the
+ * FschoolAI Signal Arbiter (public.proactive_signals) — it no longer delivers
+ * directly. The Arbiter (api/arbiter.ts) owns dedup, ranking, rate limits, quiet
+ * hours, and the actual delivery (in-app + Discord). Every proposal is logged to
+ * the Brain DB interventions table for cooldown + audit.
+ *
+ * Trigger conditions (stress is 0–10, matching brain-scheduler):
+ *   - stress_level >= 7  (high stress)
+ *   - momentum_state in ['declining', 'stalled']
+ *   - expires_at is past (context stale > 8h) AND stress_level >= 5
+ *
+ * Stress-escalation cap (§8): if stress stays very high (>= 9) across 3+ recent
+ * interventions and the student keeps not engaging, stop nudging — send ONE
+ * supportive wellbeing message with campus resources and pause stress nudges 48h.
+ *
+ * Cooldown: won't re-propose for the same person within 4h unless stress rose >= 2.
+ *
+ * Env: BRAIN_SUPABASE_URL, BRAIN_SUPABASE_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY,
+ *      CRON_SECRET (fail-closed). Optional: CAMPUS_WELLBEING_URL.
+ */
+import { proposeProactive } from "./_notify.js";
+import { computeTuning, labelOf, type Tuning } from "./_tuning.js";
+
+const BRAIN_URL  = process.env.BRAIN_SUPABASE_URL;
+const BRAIN_KEY  = process.env.BRAIN_SUPABASE_KEY;
+const FS_URL     = process.env.SUPABASE_URL;
+const FS_KEY     = process.env.SUPABASE_SERVICE_KEY;
+
+const COOLDOWN_MS       = 4 * 60 * 60 * 1000;   // 4 hours
+const STRESS_ESCALATION = 2;                      // re-propose if stress rose by this much
+const ESCALATION_STRESS = 9;                      // "very high" on the 0–10 scale (~0.9)
+const ESCALATION_COUNT  = 3;                      // # of recent very-high interventions that trips the cap
+const ESCALATION_PAUSE_MS = 48 * 60 * 60 * 1000;  // suppress stress nudges this long after escalating
+const THREE_DAYS_MS     = 3 * 24 * 60 * 60 * 1000;
+
+// Engagement-tier strategy (Phase D): a brand-new account's first two weeks should
+// stay pure delight, not stress-triggered nudges — they haven't built up enough usage
+// for a Brain DB stress/momentum signal to mean much yet. Separately, "established"
+// (>14d) accounts that have gone quiet get a gentle, distinctly-toned re-engagement
+// nudge instead — see the pass after the main stress loop below.
+const WEEK1_MS          = 14 * 24 * 60 * 60 * 1000;
+const RE_ENGAGE_IDLE_MS = 5  * 24 * 60 * 60 * 1000;
+
+// ── Brain DB helpers ──────────────────────────────────────────────────────────
+const brainHeaders = {
+  apikey:          BRAIN_KEY,
+  Authorization:   `Bearer ${BRAIN_KEY}`,
+  "Content-Type":  "application/json",
+  Prefer:          "return=representation",
+};
+async function brainGet(path: string): Promise<any[]> {
+  const res = await fetch(`${BRAIN_URL}/rest/v1/${path}`, { headers: brainHeaders as any });
+  if (!res.ok) throw new Error(`Brain GET ${path} failed ${res.status}: ${await res.text().catch(() => "")}`);
+  return res.json();
+}
+async function brainPost(path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${BRAIN_URL}/rest/v1/${path}`, {
+    method:  "POST",
+    headers: { ...brainHeaders, Prefer: "return=minimal" } as any,
+    body:    JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Brain POST ${path} failed ${res.status}: ${await res.text().catch(() => "")}`);
+}
+
+// ── FschoolAI DB reader (notification_queue lives here — see api/arbiter.ts) ─────
+const fsHeaders = { apikey: FS_KEY, Authorization: `Bearer ${FS_KEY}`, "Content-Type": "application/json" };
+async function fsGet(path: string): Promise<any[]> {
+  const res = await fetch(`${FS_URL}/rest/v1/${path}`, { headers: fsHeaders as any });
+  if (!res.ok) throw new Error(`FS GET ${path} failed ${res.status}: ${await res.text().catch(() => "")}`);
+  return res.json();
+}
+async function fsPost(path: string, body: unknown, upsert = false): Promise<void> {
+  const res = await fetch(`${FS_URL}/rest/v1/${path}`, {
+    method:  "POST",
+    headers: { ...fsHeaders, Prefer: upsert ? "resolution=merge-duplicates,return=minimal" : "return=minimal" } as any,
+    body:    JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`FS POST ${path} failed ${res.status}: ${await res.text().catch(() => "")}`);
+}
+
+// ── Message composer ──────────────────────────────────────────────────────────
+function composeMessage(person: any, ctx: any): string {
+  const name     = person.name ?? "there";
+  const stress   = ctx.stress_level ?? 5;
+  const momentum = ctx.momentum_state ?? "steady";
+  const focus    = ctx.what_to_focus_on ?? null;
+  const deadline = ctx.active_deadline ?? null;
+  const gaps     = Array.isArray(ctx.knowledge_gaps) ? ctx.knowledge_gaps : [];
+  const summary  = ctx.recent_summary ?? null;
+
+  let opening;
+  if (stress >= 8)                opening = `Hey ${name} 👋 — I can see you're under a lot of pressure right now.`;
+  else if (stress >= 7)           opening = `Hey ${name} — looks like things are getting a bit intense.`;
+  else if (momentum === "stalled") opening = `Hey ${name} — I noticed you've been a bit stuck lately.`;
+  else                            opening = `Hey ${name} — your momentum has been dipping a little.`;
+
+  const lines = [opening];
+  if (summary)        lines.push(`📊 ${summary}`);
+  if (deadline)       lines.push(`⏰ Upcoming: **${deadline}**`);
+  if (focus)          lines.push(`🎯 Focus tip: ${focus}`);
+  if (gaps.length)    lines.push(`🧠 Worth revisiting: ${gaps.slice(0, 2).join(", ")}`);
+  lines.push("", "I'm here whenever you're ready to work through it. You've got this! 💪", "_— Reggie, your academic brain_");
+  return lines.join("\n");
+}
+
+// Supportive wellbeing message — §8: no clinical terms, never implies failure or diagnosis.
+function composeWellbeing(person: any): string {
+  const name = person.name ?? "there";
+  const link = process.env.CAMPUS_WELLBEING_URL || "your campus health & wellness services";
+  return [
+    `Hey ${name} — it looks like this has been a heavy stretch.`,
+    `FschoolAI will be here whenever you're ready, no pressure at all.`,
+    `If it would help to talk to someone, ${link} is there for you.`,
+    `Take care of yourself first. 💛`,
+    `_— Reggie_`,
+  ].join("\n");
+}
+
+// Gentle re-engagement message — deliberately distinct tone from composeMessage/
+// composeWellbeing: no stress/momentum language, framed as an invitation, not a nudge.
+function composeReEngagement(user: any): string {
+  const name = user.name ?? "there";
+  return [
+    `Hey ${name} 👋 — it's been a few days since we've seen you.`,
+    `No pressure at all — whenever you're ready, I'll pick up right where we left off.`,
+    `_— Reggie_`,
+  ].join("\n");
+}
+
+// ── Eligibility + scoring ──────────────────────────────────────────────────────
+function needsIntervention(ctx: any, stressThreshold = 7): { reason: string; stress: number; urgency: number; value: number } | null {
+  const stress   = ctx.stress_level ?? 0;
+  const momentum = ctx.momentum_state ?? "steady";
+  const stale    = ctx.expires_at ? new Date(ctx.expires_at) < new Date() : false;
+  if (stress >= stressThreshold) return { reason: "high_stress",        stress, urgency: 0.7, value: 0.8 };
+  if (momentum === "stalled")   return { reason: "stalled",             stress, urgency: 0.5, value: 0.6 };
+  if (momentum === "declining") return { reason: "declining_momentum",  stress, urgency: 0.4, value: 0.6 };
+  if (stale && stress >= 5)     return { reason: "stale_context",       stress, urgency: 0.4, value: 0.5 };
+  return null;
+}
+
+function withinCooldown(last: any, currentStress: number): boolean {
+  if (!last) return false;
+  const age = Date.now() - new Date(last.sent_at ?? last.created_at).getTime();
+  if (age > COOLDOWN_MS) return false;
+  const prevStress = last.metadata?.stress_level ?? 0;
+  return currentStress - prevStress < STRESS_ESCALATION;  // still cooling down unless stress jumped
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────────
+export default async function handler(req: any, res: any) {
+  // Fail-closed.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+  const auth = req.headers?.authorization ?? req.headers?.["x-cron-secret"];
+  if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) return res.status(401).json({ error: "Unauthorized" });
+
+  if (!BRAIN_URL || !BRAIN_KEY) return res.status(200).json({ ok: false, reason: "brain db not configured" });
+  if (!FS_URL || !FS_KEY)       return res.status(200).json({ ok: false, reason: "fschool db not configured" });
+
+  const started = Date.now();
+  const results = { proposed: 0, skipped: 0, escalated: 0, errors: 0, reEngaged: 0, persons: [] as any[] };
+
+  try {
+    // Prefilter in SQL to only rows that can possibly trigger: every needsIntervention()
+    // branch requires stress_level >= 5 (STRESS_MIN caps tuned thresholds at 5) or a
+    // stalled/declining momentum. The old unfiltered select=* (no limit!) downloaded the
+    // ENTIRE table every 30 minutes — and context_window is append-mostly, so the same
+    // person was processed once per HISTORICAL row. Dedupe to each person's newest row.
+    const rows = await brainGet(
+      "context_window?select=*,persons(id,name,source_id,metadata)"
+      + "&or=(stress_level.gte.5,momentum_state.eq.stalled,momentum_state.eq.declining)"
+      + "&order=created_at.desc&limit=500",
+    );
+    const seenPersons = new Set();
+    const contexts = rows.filter((r: any) => {
+      const pid = r.persons?.id ?? r.person_id;
+      if (!pid || seenPersons.has(pid)) return false;
+      seenPersons.add(pid);
+      return true;
+    });
+    console.log(`[brain-intervention] ${contexts.length} candidate persons (from ${rows.length} rows)`);
+
+    for (const ctx of contexts) {
+      const person = ctx.persons;
+      if (!person) { results.skipped++; continue; }
+
+      // brain-person-link stores the FschoolAI user id in persons.source_id (and mirrors
+      // it in metadata.fschoolai_user_id). It never wrote a `fschool_user_id` column, so
+      // the old read here was always null → every candidate was skipped_no_user and no
+      // intervention ever fired. Read the field the linker actually sets.
+      const userId = person.source_id ?? person.metadata?.fschoolai_user_id ?? null;
+
+      // Effectiveness feedback (§3.5.4): read this student's tuned stress threshold (default 7).
+      let tuning: Tuning = { stressThreshold: 7, channelPref: null, labelCount: 0 };
+      if (userId) {
+        const t = await fsGet(`intervention_tuning?user_id=eq.${encodeURIComponent(userId)}&select=*`).catch(() => []);
+        if (t[0]) tuning = {
+          stressThreshold: t[0].stress_threshold ?? 7,
+          channelPref:     t[0].channel_pref ?? null,
+          labelCount:      t[0].label_count ?? 0,
+        };
+      }
+
+      const trigger = needsIntervention(ctx, tuning.stressThreshold);
+      if (!trigger) { results.skipped++; continue; }
+
+      // Week-1 accounts stay pure delight — skip stress-triggered nudges specifically
+      // (other trigger reasons, e.g. a genuinely stale context, still pass through).
+      if (userId && trigger.reason === "high_stress") {
+        // users has NO created_at column (live schema) → the old select 42703'd → catch →
+        // createdAt=0 → this Week-1 guard NEVER fired, so brand-new accounts got the stress
+        // nudges it was meant to suppress. email_verify_sent_at is set at signup and is real.
+        const uRows = await fsGet(`users?id=eq.${encodeURIComponent(userId)}&select=email_verify_sent_at`).catch(() => []);
+        const createdAt = uRows[0]?.email_verify_sent_at ? new Date(uRows[0].email_verify_sent_at).getTime() : 0;
+        if (createdAt && (Date.now() - createdAt) <= WEEK1_MS) { results.skipped++; continue; }
+      }
+
+      if (!userId) {
+        results.skipped++;
+        await brainPost("interventions", {
+          person_id: person.id, trigger_reason: trigger.reason, message: null,
+          channel: "none", status: "skipped_no_user",
+          sent_at: new Date().toISOString(), metadata: { stress_level: trigger.stress },
+        }).catch(() => {});
+        continue;
+      }
+
+      try {
+        // Recent intervention history (cooldown + escalation detection).
+        const history: any[] = await brainGet(`interventions?person_id=eq.${person.id}&order=created_at.desc&limit=20`);
+        const now = Date.now();
+
+        // Escalation cap still active? (paused within the last 48h → suppress ALL nudges.)
+        const escActive = history.some(h =>
+          h.status === "escalation_pause" &&
+          now - new Date(h.created_at).getTime() < ESCALATION_PAUSE_MS);
+        if (escActive) { results.skipped++; continue; }
+
+        // Don't re-escalate more than once per 3 days (prevents escalate-forever while stress stays high).
+        const escalatedRecently = history.some(h =>
+          h.status === "escalation_pause" &&
+          now - new Date(h.created_at).getTime() < THREE_DAYS_MS);
+
+        // Pull this student's recent delivered interventions ONCE — used for both the
+        // effectiveness feedback loop (§3.5.4) and the escalation non-engagement count.
+        const nq: any[] = await fsGet(
+          `notification_queue?user_id=eq.${encodeURIComponent(userId)}&type=eq.intervention` +
+          `&select=delivered_at,opened_at,action_taken,channel,created_at&order=created_at.desc&limit=200`
+        ).catch(() => []);
+
+        // Recompute + persist tuning from the labels (raise/lower stress threshold, learn channel).
+        const tuned = computeTuning(nq, tuning, now);
+        if (tuned.stressThreshold !== tuning.stressThreshold ||
+            tuned.channelPref     !== tuning.channelPref ||
+            tuned.labelCount      !== tuning.labelCount) {
+          await fsPost("intervention_tuning", {
+            user_id: userId, stress_threshold: tuned.stressThreshold,
+            channel_pref: tuned.channelPref, label_count: tuned.labelCount,
+            updated_at: new Date().toISOString(),
+          }, true).catch(() => {});
+        }
+
+        // Escalation cap: count GENUINELY ignored interventions in the last 3 days. Reuse
+        // labelOf so this honours the same 2h grace as the tuning loop — a nudge delivered
+        // minutes ago that the student simply hasn't opened yet is 'pending', NOT a failure,
+        // and must not trip the wellbeing escalation + 48h pause prematurely.
+        const threeDaysAgo = now - THREE_DAYS_MS;
+        const deliveredUnengaged = (trigger.stress >= ESCALATION_STRESS && !escalatedRecently)
+          ? nq.filter(r => r.delivered_at &&
+                           new Date(r.delivered_at).getTime() >= threeDaysAgo &&
+                           labelOf(r as any, now) === "negative").length
+          : 0;
+
+        if (trigger.stress >= ESCALATION_STRESS && !escalatedRecently && deliveredUnengaged >= ESCALATION_COUNT) {
+          await proposeProactive(userId, {
+            agentSource: "intervention", type: "intervention",
+            urgencyScore: 0.7, valueScore: 0.95,        // important, but < 0.95 urgency → still respects quiet hours
+            title: "FschoolAI is here for you", body: composeWellbeing(person),
+            channelHint: "in_app", dedupKey: "wellbeing", expiresInHours: 12,
+          });
+          await brainPost("interventions", {
+            person_id: person.id, trigger_reason: "stress_escalation", message: composeWellbeing(person),
+            channel: "in_app", status: "escalation_pause",
+            sent_at: new Date().toISOString(),
+            metadata: { stress_level: trigger.stress, stress_escalated: true },
+          });
+          results.escalated++;
+          continue;
+        }
+
+        // Normal cooldown.
+        if (withinCooldown(history[0] ?? null, trigger.stress)) { results.skipped++; continue; }
+
+        // Propose a candidate to the Arbiter (channel_hint discord → also DMs if linked).
+        const message = composeMessage(person, ctx);
+        const outcome = await proposeProactive(userId, {
+          agentSource: "intervention", type: "intervention",
+          urgencyScore: trigger.urgency, valueScore: trigger.value,
+          title: "A nudge from Reggie", body: message,
+          channelHint: "discord",
+          dedupKey: `intervention:${trigger.reason}`,
+          data: { reason: trigger.reason, stress_level: trigger.stress, momentum: ctx.momentum_state },
+        });
+
+        await brainPost("interventions", {
+          person_id: person.id, trigger_reason: trigger.reason, message,
+          channel: "proactive_signal", status: outcome === "duplicate" ? "duplicate" : "proposed",
+          sent_at: new Date().toISOString(),
+          metadata: { stress_level: trigger.stress, momentum: ctx.momentum_state },
+        });
+
+        if (outcome === "error") results.errors++; else results.proposed++;
+        results.persons.push({ id: person.id, name: person.name, reason: trigger.reason, stress: trigger.stress, outcome });
+      } catch (err) {
+        console.error(`[brain-intervention] Error for ${person.id}:`, (err as Error).message);
+        results.errors++;
+        await brainPost("interventions", {
+          person_id: person.id, trigger_reason: trigger?.reason ?? "unknown", message: null,
+          channel: "none", status: "error", sent_at: new Date().toISOString(),
+          metadata: { error: (err as Error).message, stress_level: trigger?.stress },
+        }).catch(() => {});
+      }
+    }
+
+    // ── Re-engagement pass: established (>14d) accounts gone quiet (5+ days) ──────
+    // Separate from the stress loop above — targets users who may generate NO Brain
+    // DB signal at all because they simply aren't engaging, which the loop above (keyed
+    // off context_window, itself populated by usage) can never reach.
+    try {
+      const cutoffCreated = new Date(started - WEEK1_MS).toISOString();
+      const idleCutoff     = new Date(started - RE_ENGAGE_IDLE_MS).toISOString();
+      const quiet = await fsGet(
+        `users?select=id,name,email_verify_sent_at,last_active_date` +
+        `&email_verify_sent_at=lte.${encodeURIComponent(cutoffCreated)}` +
+        `&or=(last_active_date.is.null,last_active_date.lt.${encodeURIComponent(idleCutoff.slice(0, 10))})`
+      ).catch(() => []);
+
+      for (const u of quiet) {
+        const outcome = await proposeProactive(u.id, {
+          agentSource: "cohort", type: "re_engagement",
+          urgencyScore: 0.15, valueScore: 0.4,           // low urgency — respects quiet hours, not time-sensitive
+          title: "We miss you",
+          body: composeReEngagement(u),
+          channelHint: "in_app",
+          dedupKey: "re_engagement",
+          expiresInHours: 24,
+        });
+        if (outcome === "created") results.reEngaged++;
+      }
+    } catch (err) {
+      console.error("[brain-intervention] re-engagement pass failed:", (err as Error).message);
+    }
+
+    const elapsed = Date.now() - started;
+    console.log(`[brain-intervention] done ${elapsed}ms`, results);
+    return res.status(200).json({ ok: true, elapsed_ms: elapsed, ...results });
+  } catch (err) {
+    console.error("[brain-intervention] Fatal:", (err as Error).message);
+    return res.status(500).json({ ok: false, error: (err as Error).message });
+  }
+}

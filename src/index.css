@@ -1,0 +1,95 @@
+/* index.css — Global resets and token wiring. All design tokens live in tokens.css.
+   Hallmark · macrostructure: App Shell · tone: luxury-minimal · anchor hue: neutral-white
+   pre-emit critique: P5 H5 E5 S5 R4 V5 */
+
+@import "../tokens.css";
+
+*, *::before, *::after {
+  box-sizing:  border-box;
+  margin:      0;
+  padding:     0;
+}
+
+html, body {
+  overflow-x:  clip;
+  overscroll-behavior: none;
+}
+
+body {
+  background:  var(--color-bg);
+  /* Subtle radial gradient — lighter at top centre, adding the same spatial depth
+     as the macOS desktop gradient while staying within the neutral-white theme */
+  background-image:
+    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(255, 255, 255, 0.035) 0%, transparent 100%);
+  color:       var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Remove default button appearance */
+button {
+  font-family: inherit;
+}
+
+/* Visible focus ring for keyboard users */
+:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.45);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Scrollbar — minimal dark style */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+
+/* Reduced motion — collapse spatial animations to opacity only */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:   0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration:  0.15s !important;
+    scroll-behavior:      auto !important;
+  }
+}
+
+/* ─── DYNAMIC THEME VARIABLES ───────────────────────────────────────────────
+   Set at runtime by src/utils/themeEngine.js.
+   Defaults match the existing dark look — nothing breaks before a theme is applied. */
+
+:root {
+  --app-bg-primary:    #0d0d14;
+  --app-bg-secondary:  #111118;
+  --app-bg-card:       #16161f;
+  --app-accent:        #534AB7;
+  --app-accent-bright: #7F77DD;
+  --app-text-primary:  rgba(255, 255, 255, 0.92);
+  --app-text-muted:    rgba(255, 255, 255, 0.38);
+  --app-border:        rgba(255, 255, 255, 0.08);
+}
+
+/* Smooth whole-app colour transition when theme switches */
+*, *::before, *::after {
+  transition:
+    background-color 0.65s ease,
+    border-color     0.65s ease,
+    color            0.45s ease;
+}
+
+/* Preserve snappy feel for interactive elements */
+button, input, a, [data-no-theme-transition] {
+  transition:
+    background-color 0.65s ease,
+    border-color     0.65s ease,
+    color            0.45s ease,
+    opacity          0.18s ease,
+    transform        0.18s ease;
+}

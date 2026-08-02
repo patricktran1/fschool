@@ -1,0 +1,169 @@
+From 048a36352ade7578472960933609b4ab217efb46 Mon Sep 17 00:00:00 2001
+From: Pratik <pratik2k08@gmail.com>
+Date: Tue, 2 Jun 2026 19:57:55 +0530
+Subject: [PATCH] remove twilio and update email verification
+
+---
+ api/twilio.js     | 36 --------------------------------
+ package-lock.json | 52 ++++++++++++++++++++++++++++++++++++++++++++++-
+ package.json      |  3 ++-
+ 3 files changed, 53 insertions(+), 38 deletions(-)
+ delete mode 100644 api/twilio.js
+
+diff --git a/api/twilio.js b/api/twilio.js
+deleted file mode 100644
+index c95768d..0000000
+--- a/api/twilio.js
++++ /dev/null
+@@ -1,36 +0,0 @@
+-// api/twilio.js — Vercel serverless function for SMS reminders via Twilio
+-// Required env vars: TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM
+-
+-export default async function handler(req, res) {
+-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+-
+-  const sid   = process.env.TWILIO_SID;
+-  const token = process.env.TWILIO_TOKEN;
+-  const from  = process.env.TWILIO_FROM;
+-
+-  if (!sid || !token || !from) {
+-    return res.status(500).json({ error: "Twilio env vars not configured (TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM)" });
+-  }
+-
+-  const { to, body } = req.body;
+-  if (!to || !body) return res.status(400).json({ error: "to and body are required" });
+-
+-  const credentials = Buffer.from(`${sid}:${token}`).toString("base64");
+-
+-  const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+-    method: "POST",
+-    headers: {
+-      "Authorization": `Basic ${credentials}`,
+-      "Content-Type": "application/x-www-form-urlencoded",
+-    },
+-    body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+-  });
+-
+-  const data = await twilioRes.json();
+-
+-  if (!twilioRes.ok) {
+-    return res.status(twilioRes.status).json({ error: data.message ?? "Twilio error" });
+-  }
+-
+-  return res.status(200).json({ sid: data.sid, status: data.status });
+-}
+diff --git a/package-lock.json b/package-lock.json
+index 0bd7fa2..636123c 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -13,7 +13,8 @@
+         "pdfjs-dist": "^5.7.284",
+         "react": "^18.3.1",
+         "react-dom": "^18.3.1",
+-        "recharts": "^3.8.1"
++        "recharts": "^3.8.1",
++        "resend": "^6.12.4"
+       },
+       "devDependencies": {
+         "@vitejs/plugin-react": "^4.3.1",
+@@ -1401,6 +1402,12 @@
+         "win32"
+       ]
+     },
++    "node_modules/@stablelib/base64": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz",
++      "integrity": "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==",
++      "license": "MIT"
++    },
+     "node_modules/@standard-schema/spec": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz",
+@@ -1958,6 +1965,12 @@
+       "integrity": "sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==",
+       "license": "MIT"
+     },
++    "node_modules/fast-sha256": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz",
++      "integrity": "sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==",
++      "license": "Unlicense"
++    },
+     "node_modules/fsevents": {
+       "version": "2.3.3",
+       "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+@@ -2133,6 +2146,12 @@
+       "dev": true,
+       "license": "ISC"
+     },
++    "node_modules/postal-mime": {
++      "version": "2.7.4",
++      "resolved": "https://registry.npmjs.org/postal-mime/-/postal-mime-2.7.4.tgz",
++      "integrity": "sha512-0WdnFQYUrPGGTFu1uOqD2s7omwua8xaeYGdO6rb88oD5yJ/4pPHDA4sdWqfD8wQVfCny563n/HQS7zTFft+f/g==",
++      "license": "MIT-0"
++    },
+     "node_modules/postcss": {
+       "version": "8.5.15",
+       "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.15.tgz",
+@@ -2278,6 +2297,27 @@
+       "integrity": "sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==",
+       "license": "MIT"
+     },
++    "node_modules/resend": {
++      "version": "6.12.4",
++      "resolved": "https://registry.npmjs.org/resend/-/resend-6.12.4.tgz",
++      "integrity": "sha512-lRpJ2Hxd+ht+JPDm97juRcUp9HOMuZyxaRFRFmc9Tx8iNWiei94Dx9v6SWufgKk2667C/uCeKKspMotOHSpCSg==",
++      "license": "MIT",
++      "dependencies": {
++        "postal-mime": "2.7.4",
++        "standardwebhooks": "1.0.0"
++      },
++      "engines": {
++        "node": ">=20"
++      },
++      "peerDependencies": {
++        "@react-email/render": "*"
++      },
++      "peerDependenciesMeta": {
++        "@react-email/render": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/rollup": {
+       "version": "4.60.4",
+       "resolved": "https://registry.npmjs.org/rollup/-/rollup-4.60.4.tgz",
+@@ -2352,6 +2392,16 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/standardwebhooks": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/standardwebhooks/-/standardwebhooks-1.0.0.tgz",
++      "integrity": "sha512-BbHGOQK9olHPMvQNHWul6MYlrRTAOKn03rOe4A8O3CLWhNf4YHBqq2HJKKC+sfqpxiBY52pNeesD6jIiLDz8jg==",
++      "license": "MIT",
++      "dependencies": {
++        "@stablelib/base64": "^1.0.0",
++        "fast-sha256": "^1.3.0"
++      }
++    },
+     "node_modules/text-segmentation": {
+       "version": "1.0.3",
+       "resolved": "https://registry.npmjs.org/text-segmentation/-/text-segmentation-1.0.3.tgz",
+diff --git a/package.json b/package.json
+index 23ba196..f15a151 100644
+--- a/package.json
++++ b/package.json
+@@ -13,7 +13,8 @@
+     "pdfjs-dist": "^5.7.284",
+     "react": "^18.3.1",
+     "react-dom": "^18.3.1",
+-    "recharts": "^3.8.1"
++    "recharts": "^3.8.1",
++    "resend": "^6.12.4"
+   },
+   "devDependencies": {
+     "@vitejs/plugin-react": "^4.3.1",
+-- 
+2.54.0.windows.1
+

@@ -1,0 +1,21 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "vite --port $PORT",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/extract.ts": {
+      "includeFiles": "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
+    }
+  },
+  "crons": [
+    { "path": "/api/assignment-reminder",   "schedule": "0 8 * * *"    },
+    { "path": "/api/brain-scheduler-fast",  "schedule": "*/5 * * * *"  },
+    { "path": "/api/brain-scheduler",       "schedule": "0 * * * *"    },
+    { "path": "/api/brain-intervention",    "schedule": "*/30 * * * *"  },
+    { "path": "/api/arbiter",               "schedule": "*/5 * * * *"   },
+    { "path": "/api/exam-mastery-reminder", "schedule": "0 9 * * *"     }
+  ]
+}

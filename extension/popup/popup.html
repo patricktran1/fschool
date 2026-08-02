@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NeuroAgi</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 340px; min-height: 480px;
+    background: #0f0f0f; color: rgba(255,255,255,0.9);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .screen { display: none; flex-direction: column; padding: 24px 22px; min-height: 480px; }
+  .screen.active { display: flex; }
+
+  .header { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .orb {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.25), rgba(255,255,255,0.05));
+    border: 1px solid rgba(255,255,255,0.25);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .orb-dot { width: 8px; height: 8px; border-radius: 50%; background: #f5f5f5; box-shadow: 0 0 8px rgba(255,255,255,0.7); }
+  .brand { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+  .ver {
+    margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
+    color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 2px 7px;
+  }
+
+  .auth-title { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
+  .auth-sub   { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 24px; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: rgba(255,255,255,0.4); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 11px 14px; color: rgba(255,255,255,0.9);
+    font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.15s;
+  }
+  .field input:focus { border-color: rgba(255,255,255,0.4); }
+  .field input::placeholder { color: rgba(255,255,255,0.2); }
+
+  .btn-primary {
+    width: 100%; background: #f5f5f5; color: #111; border: none;
+    border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 700;
+    cursor: pointer; font-family: inherit; transition: opacity 0.15s;
+  }
+  .btn-primary:hover   { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-ghost {
+    width: 100%; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+    padding: 11px; font-size: 14px; font-weight: 500;
+    cursor: pointer; font-family: inherit; transition: all 0.15s; margin-top: 10px;
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.9); }
+
+  .switch-link { text-align: center; margin-top: 18px; font-size: 13px; color: rgba(255,255,255,0.35); }
+  .switch-link span { color: rgba(255,255,255,0.8); cursor: pointer; text-decoration: underline; }
+
+  .error-msg {
+    background: rgba(255,59,48,0.1); border: 1px solid rgba(255,59,48,0.25);
+    border-radius: 8px; padding: 10px 12px; font-size: 12px; color: rgba(255,100,90,0.9);
+    margin-bottom: 14px; display: none;
+  }
+  .error-msg.visible { display: block; }
+
+  /* ── Capture screen ── */
+  .user-row {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 20px;
+  }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: #f5f5f5; flex-shrink: 0;
+  }
+  .user-info .name  { font-size: 13px; font-weight: 600; }
+  .user-info .email { font-size: 11px; color: rgba(255,255,255,0.35); }
+
+  .section-label { font-size: 10px; color: rgba(255,255,255,0.25); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; }
+
+  /* Steps */
+  .steps { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .step {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 14px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.03);
+    cursor: default;
+  }
+  .step.done   { border-color: rgba(52,199,89,0.25); background: rgba(52,199,89,0.06); }
+  .step.active { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); }
+  .step-num {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.4);
+  }
+  .step.done   .step-num { background: rgba(52,199,89,0.2);   color: rgba(52,199,89,0.9); }
+  .step.active .step-num { background: rgba(255,255,255,0.2); color: #f5f5f5; }
+  .step-body   { flex: 1; }
+  .step-title  { font-size: 13px; font-weight: 600; margin-bottom: 2px; color: rgba(255,255,255,0.7); }
+  .step.done   .step-title { color: rgba(52,199,89,0.9); }
+  .step.active .step-title { color: rgba(255,255,255,0.95); }
+  .step-hint   { font-size: 11px; color: rgba(255,255,255,0.3); line-height: 1.5; }
+  .step.active .step-hint { color: rgba(255,255,255,0.45); }
+
+  /* Stats */
+  .stat-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .stat-box {
+    flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 10px 8px; text-align: center;
+  }
+  .stat-val { font-size: 18px; font-weight: 700; color: #f5f5f5; }
+  .stat-lbl { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+
+  .status-msg { font-size: 12px; color: rgba(255,255,255,0.35); text-align: center; margin-top: 10px; min-height: 18px; }
+  .status-msg.success { color: rgba(52,199,89,0.9); font-weight: 600; font-size: 13px; }
+
+  .logout-btn {
+    background: none; border: none; color: rgba(255,255,255,0.2); font-size: 12px;
+    cursor: pointer; font-family: inherit; margin-top: auto; padding-top: 16px;
+    text-align: center; width: 100%; transition: color 0.15s;
+  }
+  .logout-btn:hover { color: rgba(255,255,255,0.5); }
+
+  .processing-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 10px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+    margin-bottom: 14px; font-size: 12px; color: rgba(255,255,255,0.8);
+    display: none;
+  }
+  .processing-row.visible { display: flex; }
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #f5f5f5; border-radius: 50%;
+    animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ── Login ── -->
+<div id="screen-login" class="screen active">
+  <div class="header"><div class="orb"><div class="orb-dot"></div></div><span class="brand">NeuroAgi</span><span class="ver" id="app-version-login"></span></div>
+  <div class="auth-title">Welcome back</div>
+  <div class="auth-sub">Log in to sync your academic data</div>
+  <div class="error-msg" id="login-error"></div>
+  <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@university.edu"></div>
+  <div class="field"><label>Password</label><input type="password" id="login-password" placeholder="••••••••"></div>
+  <button class="btn-primary" id="login-btn">Log In</button>
+  <div class="switch-link">No account? <span id="go-signup">Sign up free</span></div>
+</div>
+
+<!-- ── Sign Up ── -->
+<div id="screen-signup" class="screen">
+  <div class="header"><div class="orb"><div class="orb-dot"></div></div><span class="brand">NeuroAgi</span><span class="ver" id="app-version-signup"></span></div>
+  <div class="auth-title">Create account</div>
+  <div class="auth-sub">Your data stays yours — always</div>
+  <div class="error-msg" id="signup-error"></div>
+  <div class="field"><label>Name</label><input type="text" id="signup-name" placeholder="Your name"></div>
+  <div class="field"><label>Email</label><input type="email" id="signup-email" placeholder="you@university.edu"></div>
+  <div class="field"><label>Password</label><input type="password" id="signup-password" placeholder="Create a password"></div>
+  <button class="btn-primary" id="signup-btn">Create Account</button>
+  <div class="switch-link">Already have an account? <span id="go-login">Log in</span></div>
+</div>
+
+<!-- ── Capture ── -->
+<div id="screen-capture" class="screen">
+  <div class="header"><div class="orb"><div class="orb-dot"></div></div><span class="brand">NeuroAgi</span><span class="ver" id="app-version-capture"></span></div>
+
+  <div class="user-row">
+    <div class="avatar" id="user-initial">A</div>
+    <div class="user-info">
+      <div class="name" id="user-name-display"></div>
+      <div class="email" id="user-email-display"></div>
+    </div>
+  </div>
+
+  <div class="section-label">How to sync</div>
+  <div class="steps" id="steps-list">
+    <div class="step" id="step-0">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Go to your Courses page</div>
+        <div class="step-hint">Navigate to the page that lists all your courses, then click Capture below</div>
+      </div>
+    </div>
+    <div class="step" id="step-1">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Go to your Assignments page</div>
+        <div class="step-hint">Open any assignments or upcoming work page, then click Capture</div>
+      </div>
+    </div>
+    <div class="step" id="step-2">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">Go to your Grades page</div>
+        <div class="step-hint">Open your grades or progress page, then click Capture</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-box"><div class="stat-val" id="stat-courses">—</div><div class="stat-lbl">Courses</div></div>
+    <div class="stat-box"><div class="stat-val" id="stat-assignments">—</div><div class="stat-lbl">Assignments</div></div>
+    <div class="stat-box"><div class="stat-val" id="stat-grades">—</div><div class="stat-lbl">Grades</div></div>
+    <div class="stat-box"><div class="stat-val" id="stat-files">—</div><div class="stat-lbl">Files</div></div>
+  </div>
+
+  <div class="processing-row" id="processing-row">
+    <div class="spinner"></div>
+    <span id="processing-label">Reading page…</span>
+  </div>
+
+  <div class="status-msg" id="status-msg">Navigate to a page on your university portal, then click Capture</div>
+
+  <button class="btn-primary" id="capture-btn">Capture This Page</button>
+  <button class="btn-ghost" id="reset-btn" style="display:none">Start Over</button>
+
+  <button class="logout-btn" id="logout-btn">Sign out</button>
+</div>
+
+<script src="../shared-sync.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>
