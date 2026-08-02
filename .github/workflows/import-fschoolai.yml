@@ -4,8 +4,6 @@ name: Import FschoolAI and add Elon avatar
 on:
   push:
     branches: [main]
-    paths:
-      - .github/workflows/import-fschoolai.yml
   pull_request:
     branches: [main]
 
