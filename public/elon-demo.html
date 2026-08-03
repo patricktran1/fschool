@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FschoolAI · Elon Header Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#0b0c0f;
+      --panel:#121419;
+      --panel-2:#171a20;
+      --line:rgba(255,255,255,.09);
+      --muted:rgba(255,255,255,.42);
+      --text:#f5f5f5;
+      --gold:#c49a3c;
+      --teal:#00d2be;
+    }
+    * { box-sizing:border-box; }
+    html,body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif; }
+    button { font:inherit; }
+    .demo-note {
+      position:fixed; left:50%; top:12px; transform:translateX(-50%); z-index:20;
+      padding:8px 13px; border-radius:999px; border:1px solid rgba(196,154,60,.28);
+      background:rgba(17,18,22,.82); backdrop-filter:blur(20px); color:rgba(255,255,255,.68);
+      font-size:11px; letter-spacing:.04em; white-space:nowrap;
+    }
+    .shell { min-height:100vh; }
+    aside {
+      position:fixed; inset:0 auto 0 0; width:232px; padding:24px 14px; z-index:5;
+      background:rgba(12,13,16,.9); border-right:1px solid var(--line); backdrop-filter:blur(24px);
+    }
+    .brand { display:flex; align-items:center; justify-content:space-between; padding:4px 9px 20px; font-weight:750; font-size:14px; }
+    .collapse { width:29px; height:29px; display:grid; place-items:center; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--muted); }
+    .nav { display:flex; flex-direction:column; gap:4px; }
+    .nav button {
+      border:1px solid transparent; background:transparent; color:var(--muted); cursor:pointer;
+      width:100%; text-align:left; border-radius:12px; padding:11px 13px; display:flex; gap:12px; align-items:center;
+      transition:.16s ease;
+    }
+    .nav button:hover { background:rgba(255,255,255,.04); color:rgba(255,255,255,.72); }
+    .nav button.active { background:rgba(0,210,190,.1); border-color:rgba(0,210,190,.28); color:var(--teal); }
+    .nav .sep { height:1px; background:var(--line); margin:8px 13px; }
+    .icon { width:21px; text-align:center; opacity:.9; }
+    .app { margin-left:232px; min-height:100vh; }
+    header {
+      height:104px; padding:52px 22px 0; display:flex; align-items:center; justify-content:space-between;
+    }
+    .page-label { font-size:11px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; font-weight:600; }
+    .header-right { position:relative; display:flex; align-items:center; }
+    .status {
+      height:32px; display:flex; align-items:center; overflow:visible; border-radius:16px;
+      background:rgba(255,255,255,.04); border:1px solid var(--line);
+    }
+    .points { padding:0 10px 0 11px; display:flex; align-items:center; gap:5px; font-size:11px; color:var(--gold); }
+    .dot { width:6px; height:6px; border-radius:50%; background:var(--gold); }
+    .divider { width:1px; height:16px; background:var(--line); }
+    .bell { width:32px; height:32px; border:0; background:transparent; color:rgba(255,255,255,.42); display:grid; place-items:center; }
+    .elon {
+      width:36px; height:36px; margin-left:10px; flex-shrink:0; border-radius:50%; object-fit:cover;
+      object-position:50% 20%; border:1px solid rgba(196,154,60,.42);
+      box-shadow:0 0 0 3px rgba(196,154,60,.08),0 8px 22px rgba(0,0,0,.32);
+      background:rgba(255,255,255,.06);
+    }
+    main { padding:20px 22px 100px; }
+    .hero { display:flex; justify-content:space-between; gap:24px; align-items:flex-end; margin-bottom:24px; }
+    h1 { margin:0; font-size:34px; letter-spacing:-.04em; }
+    .sub { margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.55; }
+    .live { display:flex; align-items:center; gap:7px; color:rgba(255,255,255,.55); font-size:12px; }
+    .live i { width:7px; height:7px; border-radius:50%; background:#34c759; box-shadow:0 0 0 5px rgba(52,199,89,.08); }
+    .grid { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr); gap:16px; }
+    .card { border:1px solid var(--line); background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.025)); border-radius:18px; overflow:hidden; box-shadow:0 18px 50px rgba(0,0,0,.2); }
+    .card-head { height:58px; padding:0 17px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.06); }
+    .eyebrow { font-size:11px; letter-spacing:.12em; color:rgba(255,255,255,.38); font-weight:650; }
+    .avatars { display:flex; }
+    .avatars span { width:28px; height:28px; margin-left:-7px; border-radius:50%; display:grid; place-items:center; background:#22252c; border:2px solid #14161b; font-size:10px; }
+    .room-body { padding:18px; display:grid; grid-template-columns:1fr 1fr; gap:14px; min-height:370px; }
+    .focus, .board { border:1px solid rgba(255,255,255,.07); background:rgba(255,255,255,.025); border-radius:14px; padding:16px; }
+    .timer { font-size:48px; letter-spacing:-.055em; font-weight:750; margin:36px 0 8px; text-align:center; font-variant-numeric:tabular-nums; }
+    .timer-label { text-align:center; color:var(--muted); font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+    .progress { height:5px; margin:30px 12px 0; border-radius:9px; background:rgba(255,255,255,.08); overflow:hidden; }
+    .progress b { display:block; width:63%; height:100%; background:var(--gold); border-radius:inherit; }
+    .board-title { color:rgba(255,255,255,.58); font-size:12px; margin-bottom:15px; }
+    .stroke { height:8px; margin:11px 0; border-radius:4px; background:rgba(255,255,255,.07); }
+    .stroke:nth-child(2){width:88%}.stroke:nth-child(3){width:61%}.stroke:nth-child(4){width:76%}.stroke:nth-child(5){width:45%}
+    .note-card { margin-top:24px; padding:13px; border-radius:11px; background:rgba(196,154,60,.07); border:1px solid rgba(196,154,60,.18); color:rgba(255,255,255,.57); font-size:12px; line-height:1.55; }
+    .tutor { min-height:429px; display:flex; flex-direction:column; }
+    .chat { flex:1; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .bubble { max-width:86%; padding:11px 13px; border-radius:15px; font-size:13px; line-height:1.55; }
+    .bubble.user { align-self:flex-end; background:rgba(255,255,255,.1); border-radius:15px 15px 4px 15px; }
+    .bubble.ai { align-self:flex-start; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.07); border-radius:4px 15px 15px 15px; color:rgba(255,255,255,.72); }
+    .source { color:var(--gold); font-size:10px; margin-top:7px; }
+    .composer { margin:0 14px 14px; min-height:44px; border-radius:12px; border:1px solid var(--line); background:rgba(255,255,255,.04); display:flex; align-items:center; padding:0 12px; color:rgba(255,255,255,.26); font-size:12px; }
+    .mobile-nav { display:none; }
+    @media(max-width:760px){
+      aside{display:none}.app{margin-left:0}.demo-note{top:7px}.grid{grid-template-columns:1fr}.room-body{grid-template-columns:1fr}.elon{width:32px;height:32px;margin-left:8px}header{padding:48px 15px 0}main{padding:16px 15px 92px}.points span:last-child{display:none}.hero{align-items:flex-start;flex-direction:column}.mobile-nav{display:flex;position:fixed;z-index:10;bottom:0;left:0;right:0;height:66px;background:rgba(12,13,16,.92);backdrop-filter:blur(20px);border-top:1px solid var(--line);align-items:center;justify-content:space-around}.mobile-nav button{background:none;border:0;color:var(--muted);font-size:10px}.mobile-nav button.active{color:var(--teal)}
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-note">PUBLIC UI DEMO · no login required</div>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span>FschoolAI</span><button class="collapse">‹</button></div>
+      <div class="nav">
+        <button><span class="icon">⌂</span>Work</button>
+        <button><span class="icon">◇</span>Canvas</button>
+        <button><span class="icon">▤</span>Study</button>
+        <button><span class="icon">▥</span>Leaderboard</button>
+        <button><span class="icon">○</span>Identity</button>
+        <div class="sep"></div>
+        <button data-page="rooms" class="active"><span class="icon">◉</span>Rooms</button>
+        <button data-page="tutor"><span class="icon">✦</span>AI Tutor</button>
+      </div>
+    </aside>
+
+    <section class="app">
+      <header>
+        <span class="page-label" id="pageLabel">ROOMS</span>
+        <div class="header-right">
+          <div class="status">
+            <div class="points"><i class="dot"></i><strong>2,408</strong><span>· Scholar</span></div>
+            <div class="divider"></div>
+            <button class="bell" aria-label="Notifications">♢</button>
+          </div>
+          <img class="elon" src="/elon-musk.jpg" alt="Elon Musk" title="Elon Musk" />
+        </div>
+      </header>
+
+      <main>
+        <div class="hero">
+          <div><h1 id="title">Focus together.</h1><p class="sub" id="subtitle">Shared rooms, live presence, whiteboard, and a room-aware AI tutor.</p></div>
+          <div class="live"><i></i><span>3 students focusing</span></div>
+        </div>
+
+        <div class="grid">
+          <section class="card" id="roomCard">
+            <div class="card-head"><span class="eyebrow">BIOL 201 · STUDY ROOM</span><div class="avatars"><span>S</span><span>W</span><span>P</span></div></div>
+            <div class="room-body">
+              <div class="focus"><div class="timer-label">Focus session</div><div class="timer">24:18</div><div class="timer-label">of 40 minutes</div><div class="progress"><b></b></div></div>
+              <div class="board"><div class="board-title">Shared whiteboard · Lac operon</div><div class="stroke"></div><div class="stroke"></div><div class="stroke"></div><div class="stroke"></div><div class="note-card">When lactose is present, the repressor detaches from the operator and transcription proceeds.</div></div>
+            </div>
+          </section>
+
+          <section class="card tutor" id="tutorCard">
+            <div class="card-head"><span class="eyebrow">AI TUTOR · ROOM CONTEXT</span><span style="font-size:11px;color:#34c759">LIVE</span></div>
+            <div class="chat">
+              <div class="bubble user">Explain what Wei just wrote on the board.</div>
+              <div class="bubble ai">Wei summarized the inducible state of the lac operon. Lactose disables the repressor, opening the operator so RNA polymerase can transcribe the downstream genes.<div class="source">Whiteboard + Lecture 4.pdf</div></div>
+              <div class="bubble user">Quiz the room on it.</div>
+              <div class="bubble ai">Question 1: What molecule binds the lac repressor and changes its shape?</div>
+            </div>
+            <div class="composer">Ask about the room, notes, or whiteboard…</div>
+          </section>
+        </div>
+      </main>
+    </section>
+  </div>
+
+  <nav class="mobile-nav"><button>Work</button><button>Canvas</button><button data-page="rooms" class="active">Rooms</button><button data-page="tutor">Tutor</button><button>More</button></nav>
+  <script>
+    const controls = document.querySelectorAll('[data-page]');
+    function select(page){
+      controls.forEach(b => b.classList.toggle('active', b.dataset.page === page));
+      document.getElementById('pageLabel').textContent = page === 'tutor' ? 'AI TUTOR' : 'ROOMS';
+      document.getElementById('title').textContent = page === 'tutor' ? 'Your room-aware tutor.' : 'Focus together.';
+      document.getElementById('subtitle').textContent = page === 'tutor'
+        ? 'Answers grounded in your class materials, current room, and shared whiteboard.'
+        : 'Shared rooms, live presence, whiteboard, and a room-aware AI tutor.';
+      document.getElementById('roomCard').style.opacity = page === 'tutor' ? '.52' : '1';
+      document.getElementById('tutorCard').style.boxShadow = page === 'tutor' ? '0 0 0 1px rgba(196,154,60,.32),0 22px 60px rgba(0,0,0,.28)' : '0 18px 50px rgba(0,0,0,.2)';
+    }
+    controls.forEach(b => b.addEventListener('click', () => select(b.dataset.page)));
+  </script>
+</body>
+</html>
